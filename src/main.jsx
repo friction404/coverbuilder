@@ -17,6 +17,18 @@ const quoteDefaults = {
 
 const assistantPrompts = ["why is this information important?", "how should I answer?", "what happens next?"];
 
+const quoteStepTitles = {
+  quote1: "Your Details",
+  quote2: "Contact Details",
+  select: "Select Cover",
+  benefits: "Review Benefits"
+};
+
+const frictionThresholds = {
+  lowMax: 30,
+  mediumMax: 80
+};
+
 const navGroups = [
   { key: "quote", label: "Quote", steps: ["Your Details", "Contact Details", "Select Cover", "Review Benefits"] },
   {
@@ -184,6 +196,38 @@ const initialAnswers = Object.fromEntries(
   )
 );
 
+function createFrictionState(contextKey) {
+  return {
+    contextKey,
+    score: 0,
+    causes: [],
+    editCounts: {},
+    flags: {},
+    notifiedLevel: "low"
+  };
+}
+
+function getFrictionLevel(score) {
+  if (score <= frictionThresholds.lowMax) return "low";
+  if (score <= frictionThresholds.mediumMax) return "medium";
+  return "high";
+}
+
+function addUniqueCause(causes, cause) {
+  return causes.includes(cause) ? causes : [...causes, cause];
+}
+
+function applyFrictionSignal(current, { points, cause, flag }) {
+  if (flag && current.flags[flag]) return current;
+
+  return {
+    ...current,
+    score: Math.min(100, current.score + points),
+    causes: addUniqueCause(current.causes, cause),
+    flags: flag ? { ...current.flags, [flag]: true } : current.flags
+  };
+}
+
 function App() {
   const [screen, setScreen] = useState("quote1");
   const [quote, setQuote] = useState(quoteDefaults);
@@ -192,31 +236,143 @@ function App() {
   const [answers, setAnswers] = useState(initialAnswers);
   const [assistantQuestion, setAssistantQuestion] = useState(null);
   const [assistantPrompt, setAssistantPrompt] = useState(null);
+  const [assistantSessionId, setAssistantSessionId] = useState(0);
+  const [frictionAlert, setFrictionAlert] = useState(null);
+  const [lastActivityAt, setLastActivityAt] = useState(Date.now());
   const isPremiumCalculated = screen !== "quote1" && screen !== "quote2";
 
-  const openAssistant = (question) => {
-    setAssistantQuestion(question);
-    setAssistantPrompt(null);
-  };
-
   const activeStep = useMemo(() => {
-    const quoteMap = { quote1: "Your Details", quote2: "Contact Details", select: "Select Cover", benefits: "Review Benefits" };
-    return screen === "application" ? appSections[appIndex].nav : quoteMap[screen];
+    return screen === "application" ? appSections[appIndex].nav : quoteStepTitles[screen];
   }, [screen, appIndex]);
 
+  const activeContextKey = screen === "application" ? `application:${appSections[appIndex].id}` : screen;
+  const activeContextLabel = screen === "application" ? appSections[appIndex].title : activeStep;
+  const [friction, setFriction] = useState(() => createFrictionState(activeContextKey));
+
+  const recordActivity = () => setLastActivityAt(Date.now());
+
+  const recordFrictionSignal = (signal) => {
+    setFriction((current) => applyFrictionSignal(current, signal));
+  };
+
+  const recordHelpClick = (question) => {
+    recordActivity();
+    recordFrictionSignal({
+      points: 25,
+      cause: `Help opened for "${question.label}".`
+    });
+  };
+
+  const recordAnswerEdit = (id, label) => {
+    recordActivity();
+    setFriction((current) => {
+      const nextCount = (current.editCounts[id] || 0) + 1;
+      const next = {
+        ...current,
+        editCounts: { ...current.editCounts, [id]: nextCount }
+      };
+
+      if (nextCount === 2) {
+        return applyFrictionSignal(next, {
+          points: 15,
+          cause: `The answer for "${label}" was changed more than once.`,
+          flag: `edit-${id}-2`
+        });
+      }
+
+      if (nextCount === 4 || nextCount === 6) {
+        return applyFrictionSignal(next, {
+          points: 10,
+          cause: `Repeated changes suggest uncertainty on "${label}".`,
+          flag: `edit-${id}-${nextCount}`
+        });
+      }
+
+      return next;
+    });
+  };
+
+  const openAssistant = (question) => {
+    recordHelpClick(question);
+    setFrictionAlert(null);
+    setAssistantQuestion(question);
+    setAssistantPrompt(null);
+    setAssistantSessionId((value) => value + 1);
+  };
+
+  useEffect(() => {
+    setFriction(createFrictionState(activeContextKey));
+    setFrictionAlert(null);
+    setAssistantQuestion(null);
+    setAssistantPrompt(null);
+    setAssistantSessionId((value) => value + 1);
+    setLastActivityAt(Date.now());
+  }, [activeContextKey]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      recordFrictionSignal({
+        points: 35,
+        cause: "No activity detected for 10 seconds.",
+        flag: "inactivity-10"
+      });
+    }, 10000);
+
+    return () => window.clearTimeout(timeout);
+  }, [lastActivityAt, activeContextKey]);
+
+  useEffect(() => {
+    const longDwellTimer = window.setTimeout(() => {
+      recordFrictionSignal({
+        points: 20,
+        cause: `Spent a long time on "${activeContextLabel}".`,
+        flag: "dwell-30"
+      });
+    }, 30000);
+
+    const extendedDwellTimer = window.setTimeout(() => {
+      recordFrictionSignal({
+        points: 15,
+        cause: `Still reviewing "${activeContextLabel}" after an extended pause.`,
+        flag: "dwell-60"
+      });
+    }, 60000);
+
+    return () => {
+      window.clearTimeout(longDwellTimer);
+      window.clearTimeout(extendedDwellTimer);
+    };
+  }, [activeContextKey, activeContextLabel]);
+
+  useEffect(() => {
+    const level = getFrictionLevel(friction.score);
+    if (level === "low" || level === friction.notifiedLevel) return;
+
+    setFrictionAlert({
+      level,
+      score: friction.score,
+      causes: friction.causes.slice(-3)
+    });
+    setAssistantQuestion({ label: activeContextLabel });
+    setAssistantPrompt(null);
+    setAssistantSessionId((value) => value + 1);
+    setFriction((current) => ({ ...current, notifiedLevel: level }));
+  }, [activeContextLabel, friction.causes, friction.notifiedLevel, friction.score]);
+
   const goAppNext = () => {
+    recordActivity();
     if (appIndex < appSections.length - 1) setAppIndex((value) => value + 1);
   };
 
   return (
-    <div className="app">
+    <div className="app" onPointerDown={recordActivity} onKeyDown={recordActivity}>
       <Header mode={screen === "application" ? "YOUR APPLICATION" : "TAL COVERBUILDER"} />
       <main className={`shell ${screen === "application" ? "application-shell" : ""} ${isPremiumCalculated ? "" : "no-summary"}`}>
         <ProgressRail activeStep={activeStep} appIndex={appIndex} screen={screen} />
         <section className="content-panel">
-          {screen === "quote1" && <QuoteStepOne quote={quote} setQuote={setQuote} onHelp={openAssistant} onNext={() => setScreen("quote2")} />}
-          {screen === "quote2" && <QuoteStepTwo quote={quote} setQuote={setQuote} onHelp={openAssistant} onBack={() => setScreen("quote1")} onNext={() => setScreen("select")} />}
-          {screen === "select" && <SelectCover cover={cover} setCover={setCover} onHelp={openAssistant} onBack={() => setScreen("quote2")} onNext={() => setScreen("benefits")} />}
+          {screen === "quote1" && <QuoteStepOne quote={quote} setQuote={setQuote} onHelp={openAssistant} onEdit={recordAnswerEdit} onNext={() => setScreen("quote2")} />}
+          {screen === "quote2" && <QuoteStepTwo quote={quote} setQuote={setQuote} onHelp={openAssistant} onEdit={recordAnswerEdit} onBack={() => setScreen("quote1")} onNext={() => setScreen("select")} />}
+          {screen === "select" && <SelectCover cover={cover} setCover={setCover} onHelp={openAssistant} onEdit={recordAnswerEdit} onBack={() => setScreen("quote2")} onNext={() => setScreen("benefits")} />}
           {screen === "benefits" && <Benefits cover={cover} onBack={() => setScreen("select")} onNext={() => setScreen("application")} />}
           {screen === "application" && (
             <ApplicationSection
@@ -224,6 +380,7 @@ function App() {
               answers={answers}
               setAnswers={setAnswers}
               onHelp={openAssistant}
+              onEdit={recordAnswerEdit}
               onBack={() => (appIndex === 0 ? setScreen("benefits") : setAppIndex((value) => value - 1))}
               onNext={goAppNext}
               isLast={appIndex === appSections.length - 1}
@@ -233,13 +390,15 @@ function App() {
         {isPremiumCalculated && <QuoteSummary cover={cover} screen={screen} />}
       </main>
       <AssistantDrawer
-        key={assistantQuestion?.label || "assistant-closed"}
+        key={`${assistantQuestion?.label || "assistant-closed"}-${assistantSessionId}`}
         question={assistantQuestion}
         selectedPrompt={assistantPrompt}
+        frictionAlert={frictionAlert}
         onAsk={setAssistantPrompt}
         onClose={() => {
           setAssistantQuestion(null);
           setAssistantPrompt(null);
+          setFrictionAlert(null);
         }}
       />
       <Footer />
@@ -290,35 +449,35 @@ function ProgressRail({ activeStep, screen, appIndex }) {
   );
 }
 
-function QuoteStepOne({ quote, setQuote, onHelp, onNext }) {
+function QuoteStepOne({ quote, setQuote, onHelp, onEdit, onNext }) {
   return (
     <FormFrame title="Let’s get started" eyebrow="STEP 1 OF 2">
-      <Field label="Date of birth" value={quote.dob} onHelp={onHelp} onChange={(value) => setQuote({ ...quote, dob: value })} />
-      <RadioGroup label="Gender" value={quote.gender} options={["Male", "Female"]} onHelp={onHelp} onChange={(value) => setQuote({ ...quote, gender: value })} />
-      <RadioGroup label="Have you smoked or used nicotine products in the last 12 months?" value={quote.smoker} options={["No", "Yes"]} onHelp={onHelp} onChange={(value) => setQuote({ ...quote, smoker: value })} />
-      <Field label="Occupation" value={quote.occupation} onHelp={onHelp} onChange={(value) => setQuote({ ...quote, occupation: value })} hint="Start typing and select the closest occupation." />
-      <Field label="Annual income" prefix="$" value={quote.income} onHelp={onHelp} onChange={(value) => setQuote({ ...quote, income: value })} />
+      <Field id="quote-dob" label="Date of birth" value={quote.dob} onHelp={onHelp} onEdit={onEdit} onChange={(value) => setQuote({ ...quote, dob: value })} />
+      <RadioGroup id="quote-gender" label="Gender" value={quote.gender} options={["Male", "Female"]} onHelp={onHelp} onEdit={onEdit} onChange={(value) => setQuote({ ...quote, gender: value })} />
+      <RadioGroup id="quote-smoker" label="Have you smoked or used nicotine products in the last 12 months?" value={quote.smoker} options={["No", "Yes"]} onHelp={onHelp} onEdit={onEdit} onChange={(value) => setQuote({ ...quote, smoker: value })} />
+      <Field id="quote-occupation" label="Occupation" value={quote.occupation} onHelp={onHelp} onEdit={onEdit} onChange={(value) => setQuote({ ...quote, occupation: value })} hint="Start typing and select the closest occupation." />
+      <Field id="quote-income" label="Annual income" prefix="$" value={quote.income} onHelp={onHelp} onEdit={onEdit} onChange={(value) => setQuote({ ...quote, income: value })} />
       <Actions onNext={onNext} nextLabel="NEXT" />
     </FormFrame>
   );
 }
 
-function QuoteStepTwo({ quote, setQuote, onHelp, onBack, onNext }) {
+function QuoteStepTwo({ quote, setQuote, onHelp, onEdit, onBack, onNext }) {
   return (
     <FormFrame title="Your contact details" eyebrow="STEP 2 OF 2">
       <div className="two-col">
-        <Field label="First name" value={quote.firstName} onHelp={onHelp} onChange={(value) => setQuote({ ...quote, firstName: value })} />
-        <Field label="Last name" value={quote.lastName} onHelp={onHelp} onChange={(value) => setQuote({ ...quote, lastName: value })} />
+        <Field id="quote-first-name" label="First name" value={quote.firstName} onHelp={onHelp} onEdit={onEdit} onChange={(value) => setQuote({ ...quote, firstName: value })} />
+        <Field id="quote-last-name" label="Last name" value={quote.lastName} onHelp={onHelp} onEdit={onEdit} onChange={(value) => setQuote({ ...quote, lastName: value })} />
       </div>
-      <Field label="Mobile phone number" value={quote.phone} onHelp={onHelp} onChange={(value) => setQuote({ ...quote, phone: value })} />
-      <Field label="Email address" value={quote.email} onHelp={onHelp} onChange={(value) => setQuote({ ...quote, email: value })} />
-      <Field label="Postcode" value={quote.postcode} onHelp={onHelp} onChange={(value) => setQuote({ ...quote, postcode: value })} />
+      <Field id="quote-phone" label="Mobile phone number" value={quote.phone} onHelp={onHelp} onEdit={onEdit} onChange={(value) => setQuote({ ...quote, phone: value })} />
+      <Field id="quote-email" label="Email address" value={quote.email} onHelp={onHelp} onEdit={onEdit} onChange={(value) => setQuote({ ...quote, email: value })} />
+      <Field id="quote-postcode" label="Postcode" value={quote.postcode} onHelp={onHelp} onEdit={onEdit} onChange={(value) => setQuote({ ...quote, postcode: value })} />
       <Actions onBack={onBack} onNext={onNext} nextLabel="CALCULATE QUOTE" />
     </FormFrame>
   );
 }
 
-function SelectCover({ cover, setCover, onHelp, onBack, onNext }) {
+function SelectCover({ cover, setCover, onHelp, onEdit, onBack, onNext }) {
   const benefits = [
     ["life", "Life Insurance", "A lump sum payment if you die or are diagnosed with a terminal illness.", "$21.75"],
     ["tpd", "Total Permanent Disability", "A lump sum payment if you are unlikely to work again.", "$18.05"],
@@ -331,7 +490,7 @@ function SelectCover({ cover, setCover, onHelp, onBack, onNext }) {
         <b>$29.75/month</b>
         <span>Includes Life Insurance and an $8.00 policy fee.</span>
       </div>
-      <Field label="Life Insurance cover amount" prefix="$" value={cover.amount} onHelp={onHelp} onChange={(value) => setCover({ ...cover, amount: value })} />
+      <Field id="cover-amount" label="Life Insurance cover amount" prefix="$" value={cover.amount} onHelp={onHelp} onEdit={onEdit} onChange={(value) => setCover({ ...cover, amount: value })} />
       <div className="benefit-list">
         {benefits.map(([key, title, copy, price]) => (
           <label className={cover[key] ? "benefit selected" : "benefit"} key={key}>
@@ -369,7 +528,7 @@ function Benefits({ cover, onBack, onNext }) {
   );
 }
 
-function ApplicationSection({ section, answers, setAnswers, onHelp, onBack, onNext, isLast }) {
+function ApplicationSection({ section, answers, setAnswers, onHelp, onEdit, onBack, onNext, isLast }) {
   const setAnswer = (id, value) => setAnswers((current) => ({ ...current, [id]: value }));
   return (
     <FormFrame title={section.title} eyebrow={section.meta}>
@@ -382,7 +541,7 @@ function ApplicationSection({ section, answers, setAnswers, onHelp, onBack, onNe
         </ul>
       )}
       {(section.questions || []).map((question) => (
-        <Question key={question.id} question={question} value={answers[question.id]} onHelp={onHelp} onChange={(value) => setAnswer(question.id, value)} />
+        <Question key={question.id} question={question} value={answers[question.id]} onHelp={onHelp} onEdit={onEdit} onChange={(value) => setAnswer(question.id, value)} />
       ))}
       {section.kind === "review" && <ReviewAnswers answers={answers} />}
       {section.kind === "stop" && <div className="stop-box">This prototype intentionally does not finalise or submit an application.</div>}
@@ -401,14 +560,21 @@ function FormFrame({ eyebrow, title, children }) {
   );
 }
 
-function Question({ question, value, onHelp, onChange }) {
-  if (question.type === "radio") return <RadioGroup label={question.label} options={question.options} value={value} onHelp={onHelp} onChange={onChange} />;
-  if (question.type === "select") return <SelectField label={question.label} options={question.options} value={value} onHelp={onHelp} onChange={onChange} />;
+function Question({ question, value, onHelp, onEdit, onChange }) {
+  if (question.type === "radio") return <RadioGroup id={question.id} label={question.label} options={question.options} value={value} onHelp={onHelp} onEdit={onEdit} onChange={onChange} />;
+  if (question.type === "select") return <SelectField id={question.id} label={question.label} options={question.options} value={value} onHelp={onHelp} onEdit={onEdit} onChange={onChange} />;
   if (question.type === "checkbox") {
     return (
       <div className="check-question">
         <label className="check-row">
-          <input type="checkbox" checked={Boolean(value)} onChange={(event) => onChange(event.target.checked)} />
+          <input
+            type="checkbox"
+            checked={Boolean(value)}
+            onChange={(event) => {
+              onEdit?.(question.id, question.label);
+              onChange(event.target.checked);
+            }}
+          />
           <span>{question.label}</span>
         </label>
         <HelpButton question={{ label: question.label }} onHelp={onHelp} />
@@ -423,16 +589,23 @@ function Question({ question, value, onHelp, onChange }) {
       </div>
     );
   }
-  return <Field label={question.label} value={value} onHelp={onHelp} onChange={onChange} prefix={question.type === "money" ? "$" : undefined} suffix={question.suffix} type={question.type === "number" ? "number" : "text"} />;
+  return <Field id={question.id} label={question.label} value={value} onHelp={onHelp} onEdit={onEdit} onChange={onChange} prefix={question.type === "money" ? "$" : undefined} suffix={question.suffix} type={question.type === "number" ? "number" : "text"} />;
 }
 
-function Field({ label, value, onHelp, onChange, prefix, suffix, hint, type = "text" }) {
+function Field({ id, label, value, onHelp, onEdit, onChange, prefix, suffix, hint, type = "text" }) {
   return (
     <div className="field">
       <QuestionLabel label={label} onHelp={onHelp} />
       <div className="input-wrap">
         {prefix && <span>{prefix}</span>}
-        <input type={type} value={value} onChange={(event) => onChange(event.target.value)} />
+        <input
+          type={type}
+          value={value}
+          onChange={(event) => {
+            onEdit?.(id || label, label);
+            onChange(event.target.value);
+          }}
+        />
         {suffix && <span>{suffix}</span>}
       </div>
       {hint && <small className="hint">{hint}</small>}
@@ -440,18 +613,24 @@ function Field({ label, value, onHelp, onChange, prefix, suffix, hint, type = "t
   );
 }
 
-function SelectField({ label, options, value, onHelp, onChange }) {
+function SelectField({ id, label, options, value, onHelp, onEdit, onChange }) {
   return (
     <div className="field">
       <QuestionLabel label={label} onHelp={onHelp} />
-      <select value={value} onChange={(event) => onChange(event.target.value)}>
+      <select
+        value={value}
+        onChange={(event) => {
+          onEdit?.(id || label, label);
+          onChange(event.target.value);
+        }}
+      >
         {options.map((option) => <option key={option}>{option}</option>)}
       </select>
     </div>
   );
 }
 
-function RadioGroup({ label, options, value, onHelp, onChange }) {
+function RadioGroup({ id, label, options, value, onHelp, onEdit, onChange }) {
   return (
     <fieldset className="radio-group">
       <legend>
@@ -463,7 +642,14 @@ function RadioGroup({ label, options, value, onHelp, onChange }) {
       <div className="radio-options">
         {options.map((option) => (
           <label className={value === option ? "radio selected" : "radio"} key={option}>
-            <input type="radio" checked={value === option} onChange={() => onChange(option)} />
+            <input
+              type="radio"
+              checked={value === option}
+              onChange={() => {
+                onEdit?.(id || label, label);
+                onChange(option);
+              }}
+            />
             <span>{option}</span>
           </label>
         ))}
@@ -491,7 +677,7 @@ function HelpButton({ question, onHelp }) {
   );
 }
 
-function AssistantDrawer({ question, selectedPrompt, onAsk, onClose }) {
+function AssistantDrawer({ question, selectedPrompt, frictionAlert, onAsk, onClose }) {
   const [customQuestion, setCustomQuestion] = useState("");
   const [messages, setMessages] = useState([]);
   const latestExchangeRef = useRef(null);
@@ -537,7 +723,18 @@ function AssistantDrawer({ question, selectedPrompt, onAsk, onClose }) {
       </div>
       <div className="assistant-question">{question.label}</div>
       <div className="assistant-chat" aria-live="polite">
-        {messages.length === 0 && (
+        {frictionAlert && messages.length === 0 && (
+          <div className={`chat-message assistant-message friction-message ${frictionAlert.level === "high" ? "high-friction" : ""}`}>
+            <span>AI assistant</span>
+            <p>{getFrictionMessage(frictionAlert)}</p>
+            {frictionAlert.level === "high" && (
+              <button className="rep-call-button" type="button">
+                REQUEST A CALL
+              </button>
+            )}
+          </div>
+        )}
+        {!frictionAlert && messages.length === 0 && (
           <div className="chat-message assistant-message">
             <span>AI assistant</span>
             <p>I can help explain this question in plain language. Choose a quick question or type your own below.</p>
@@ -579,6 +776,14 @@ function AssistantDrawer({ question, selectedPrompt, onAsk, onClose }) {
       </form>
     </aside>
   );
+}
+
+function getFrictionMessage(frictionAlert) {
+  if (frictionAlert.level === "high") {
+    return "It looks like this question may need a little extra support. I can walk you through what it means, what details to check, and what usually happens next. If you would rather talk it through, you can request a representative call.";
+  }
+
+  return "Need a hand with this question? I can explain what it means, why it matters, and how to think about your answer before you continue.";
 }
 
 function getQuestionTopic(label) {

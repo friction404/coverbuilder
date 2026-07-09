@@ -96,8 +96,41 @@ async function clickButton(page, text) {
     const mobileAssistantPath = path.join(screenshotDir, "coverbuilder-mobile-assistant.png");
     await mobile.screenshot({ path: mobileAssistantPath, fullPage: true });
 
+    const frictionPage = await browser.newPage({ viewport: { width: 1440, height: 1200 } });
+    await frictionPage.goto("http://127.0.0.1:5190", { waitUntil: "networkidle" });
+    await frictionPage.waitForTimeout(10500);
+    const mediumFrictionText = await frictionPage.locator(".friction-message").innerText();
+    checks.mediumFrictionGuidanceOpens =
+      mediumFrictionText.includes("Need a hand with this question?") &&
+      mediumFrictionText.includes("how to think about your answer") &&
+      !mediumFrictionText.includes("Score") &&
+      !mediumFrictionText.includes("Signals") &&
+      !mediumFrictionText.includes("Possible reason");
+    const mediumFrictionPath = path.join(screenshotDir, "coverbuilder-medium-friction.png");
+    await frictionPage.screenshot({ path: mediumFrictionPath, fullPage: true });
+    await frictionPage.getByRole("button", { name: "Close AI assistant" }).click();
+    const firstField = frictionPage.locator(".field input").first();
+    await firstField.fill("02/02/1984");
+    await firstField.fill("03/03/1984");
+    await firstField.fill("04/04/1984");
+    await firstField.fill("05/05/1984");
+    await firstField.fill("06/06/1984");
+    await firstField.fill("07/07/1984");
+    await frictionPage.locator(".help-button").first().click();
+    await frictionPage.getByRole("button", { name: "REQUEST A CALL" }).waitFor({ state: "visible", timeout: 3000 });
+    const highFrictionText = await frictionPage.locator(".friction-message").innerText();
+    checks.highFrictionCallSuggestionOpens =
+      highFrictionText.includes("extra support") &&
+      highFrictionText.includes("request a representative call") &&
+      !highFrictionText.includes("Score") &&
+      !highFrictionText.includes("Signals") &&
+      !highFrictionText.includes("Possible reason") &&
+      (await frictionPage.getByRole("button", { name: "REQUEST A CALL" }).isVisible());
+    const highFrictionPath = path.join(screenshotDir, "coverbuilder-high-friction.png");
+    await frictionPage.screenshot({ path: highFrictionPath, fullPage: true });
+
     await browser.close();
-    console.log(JSON.stringify({ headings, checks, screenshots: { desktopPath, assistantPath, mobilePath, mobileAssistantPath } }, null, 2));
+    console.log(JSON.stringify({ headings, checks, screenshots: { desktopPath, assistantPath, mobilePath, mobileAssistantPath, mediumFrictionPath, highFrictionPath } }, null, 2));
   } finally {
     server.kill();
   }

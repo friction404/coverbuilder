@@ -590,10 +590,33 @@ button {
   background: var(--soft);
 }
 
+.friction-message {
+  max-width: 100%;
+  border-left: 4px solid var(--tal-green);
+}
+
+.friction-message.high-friction {
+  border-left-color: var(--tal-orange);
+  background: #fff7f2;
+}
+
 .customer-message {
   align-self: flex-end;
   border-color: var(--tal-green);
   background: var(--soft-green);
+}
+
+.rep-call-button {
+  min-width: 124px;
+  min-height: 38px;
+  margin-top: 12px;
+  color: var(--text);
+  background: var(--tal-orange);
+  letter-spacing: 1.2px;
+}
+
+.rep-call-button:hover {
+  background: var(--tal-orange-dark);
 }
 
 .assistant-quick-actions {
