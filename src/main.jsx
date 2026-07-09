@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 
@@ -14,6 +14,8 @@ const quoteDefaults = {
   email: "alex.taylor@example.com",
   postcode: "2000"
 };
+
+const assistantPrompts = ["why is this information important?", "how should I answer?", "what happens next?"];
 
 const navGroups = [
   { key: "quote", label: "Quote", steps: ["Your Details", "Contact Details", "Select Cover", "Review Benefits"] },
@@ -188,7 +190,14 @@ function App() {
   const [cover, setCover] = useState({ life: true, tpd: false, trauma: false, income: false, amount: "500000" });
   const [appIndex, setAppIndex] = useState(0);
   const [answers, setAnswers] = useState(initialAnswers);
+  const [assistantQuestion, setAssistantQuestion] = useState(null);
+  const [assistantPrompt, setAssistantPrompt] = useState(null);
   const isPremiumCalculated = screen !== "quote1" && screen !== "quote2";
+
+  const openAssistant = (question) => {
+    setAssistantQuestion(question);
+    setAssistantPrompt(null);
+  };
 
   const activeStep = useMemo(() => {
     const quoteMap = { quote1: "Your Details", quote2: "Contact Details", select: "Select Cover", benefits: "Review Benefits" };
@@ -205,15 +214,16 @@ function App() {
       <main className={`shell ${screen === "application" ? "application-shell" : ""} ${isPremiumCalculated ? "" : "no-summary"}`}>
         <ProgressRail activeStep={activeStep} appIndex={appIndex} screen={screen} />
         <section className="content-panel">
-          {screen === "quote1" && <QuoteStepOne quote={quote} setQuote={setQuote} onNext={() => setScreen("quote2")} />}
-          {screen === "quote2" && <QuoteStepTwo quote={quote} setQuote={setQuote} onBack={() => setScreen("quote1")} onNext={() => setScreen("select")} />}
-          {screen === "select" && <SelectCover cover={cover} setCover={setCover} onBack={() => setScreen("quote2")} onNext={() => setScreen("benefits")} />}
+          {screen === "quote1" && <QuoteStepOne quote={quote} setQuote={setQuote} onHelp={openAssistant} onNext={() => setScreen("quote2")} />}
+          {screen === "quote2" && <QuoteStepTwo quote={quote} setQuote={setQuote} onHelp={openAssistant} onBack={() => setScreen("quote1")} onNext={() => setScreen("select")} />}
+          {screen === "select" && <SelectCover cover={cover} setCover={setCover} onHelp={openAssistant} onBack={() => setScreen("quote2")} onNext={() => setScreen("benefits")} />}
           {screen === "benefits" && <Benefits cover={cover} onBack={() => setScreen("select")} onNext={() => setScreen("application")} />}
           {screen === "application" && (
             <ApplicationSection
               section={appSections[appIndex]}
               answers={answers}
               setAnswers={setAnswers}
+              onHelp={openAssistant}
               onBack={() => (appIndex === 0 ? setScreen("benefits") : setAppIndex((value) => value - 1))}
               onNext={goAppNext}
               isLast={appIndex === appSections.length - 1}
@@ -222,6 +232,16 @@ function App() {
         </section>
         {isPremiumCalculated && <QuoteSummary cover={cover} screen={screen} />}
       </main>
+      <AssistantDrawer
+        key={assistantQuestion?.label || "assistant-closed"}
+        question={assistantQuestion}
+        selectedPrompt={assistantPrompt}
+        onAsk={setAssistantPrompt}
+        onClose={() => {
+          setAssistantQuestion(null);
+          setAssistantPrompt(null);
+        }}
+      />
       <Footer />
     </div>
   );
@@ -270,35 +290,35 @@ function ProgressRail({ activeStep, screen, appIndex }) {
   );
 }
 
-function QuoteStepOne({ quote, setQuote, onNext }) {
+function QuoteStepOne({ quote, setQuote, onHelp, onNext }) {
   return (
     <FormFrame title="Let’s get started" eyebrow="STEP 1 OF 2">
-      <Field label="Date of birth" value={quote.dob} onChange={(value) => setQuote({ ...quote, dob: value })} />
-      <RadioGroup label="Gender" value={quote.gender} options={["Male", "Female"]} onChange={(value) => setQuote({ ...quote, gender: value })} />
-      <RadioGroup label="Have you smoked or used nicotine products in the last 12 months?" value={quote.smoker} options={["No", "Yes"]} onChange={(value) => setQuote({ ...quote, smoker: value })} />
-      <Field label="Occupation" value={quote.occupation} onChange={(value) => setQuote({ ...quote, occupation: value })} hint="Start typing and select the closest occupation." />
-      <Field label="Annual income" prefix="$" value={quote.income} onChange={(value) => setQuote({ ...quote, income: value })} />
+      <Field label="Date of birth" value={quote.dob} onHelp={onHelp} onChange={(value) => setQuote({ ...quote, dob: value })} />
+      <RadioGroup label="Gender" value={quote.gender} options={["Male", "Female"]} onHelp={onHelp} onChange={(value) => setQuote({ ...quote, gender: value })} />
+      <RadioGroup label="Have you smoked or used nicotine products in the last 12 months?" value={quote.smoker} options={["No", "Yes"]} onHelp={onHelp} onChange={(value) => setQuote({ ...quote, smoker: value })} />
+      <Field label="Occupation" value={quote.occupation} onHelp={onHelp} onChange={(value) => setQuote({ ...quote, occupation: value })} hint="Start typing and select the closest occupation." />
+      <Field label="Annual income" prefix="$" value={quote.income} onHelp={onHelp} onChange={(value) => setQuote({ ...quote, income: value })} />
       <Actions onNext={onNext} nextLabel="NEXT" />
     </FormFrame>
   );
 }
 
-function QuoteStepTwo({ quote, setQuote, onBack, onNext }) {
+function QuoteStepTwo({ quote, setQuote, onHelp, onBack, onNext }) {
   return (
     <FormFrame title="Your contact details" eyebrow="STEP 2 OF 2">
       <div className="two-col">
-        <Field label="First name" value={quote.firstName} onChange={(value) => setQuote({ ...quote, firstName: value })} />
-        <Field label="Last name" value={quote.lastName} onChange={(value) => setQuote({ ...quote, lastName: value })} />
+        <Field label="First name" value={quote.firstName} onHelp={onHelp} onChange={(value) => setQuote({ ...quote, firstName: value })} />
+        <Field label="Last name" value={quote.lastName} onHelp={onHelp} onChange={(value) => setQuote({ ...quote, lastName: value })} />
       </div>
-      <Field label="Mobile phone number" value={quote.phone} onChange={(value) => setQuote({ ...quote, phone: value })} />
-      <Field label="Email address" value={quote.email} onChange={(value) => setQuote({ ...quote, email: value })} />
-      <Field label="Postcode" value={quote.postcode} onChange={(value) => setQuote({ ...quote, postcode: value })} />
+      <Field label="Mobile phone number" value={quote.phone} onHelp={onHelp} onChange={(value) => setQuote({ ...quote, phone: value })} />
+      <Field label="Email address" value={quote.email} onHelp={onHelp} onChange={(value) => setQuote({ ...quote, email: value })} />
+      <Field label="Postcode" value={quote.postcode} onHelp={onHelp} onChange={(value) => setQuote({ ...quote, postcode: value })} />
       <Actions onBack={onBack} onNext={onNext} nextLabel="CALCULATE QUOTE" />
     </FormFrame>
   );
 }
 
-function SelectCover({ cover, setCover, onBack, onNext }) {
+function SelectCover({ cover, setCover, onHelp, onBack, onNext }) {
   const benefits = [
     ["life", "Life Insurance", "A lump sum payment if you die or are diagnosed with a terminal illness.", "$21.75"],
     ["tpd", "Total Permanent Disability", "A lump sum payment if you are unlikely to work again.", "$18.05"],
@@ -311,7 +331,7 @@ function SelectCover({ cover, setCover, onBack, onNext }) {
         <b>$29.75/month</b>
         <span>Includes Life Insurance and an $8.00 policy fee.</span>
       </div>
-      <Field label="Life Insurance cover amount" prefix="$" value={cover.amount} onChange={(value) => setCover({ ...cover, amount: value })} />
+      <Field label="Life Insurance cover amount" prefix="$" value={cover.amount} onHelp={onHelp} onChange={(value) => setCover({ ...cover, amount: value })} />
       <div className="benefit-list">
         {benefits.map(([key, title, copy, price]) => (
           <label className={cover[key] ? "benefit selected" : "benefit"} key={key}>
@@ -349,7 +369,7 @@ function Benefits({ cover, onBack, onNext }) {
   );
 }
 
-function ApplicationSection({ section, answers, setAnswers, onBack, onNext, isLast }) {
+function ApplicationSection({ section, answers, setAnswers, onHelp, onBack, onNext, isLast }) {
   const setAnswer = (id, value) => setAnswers((current) => ({ ...current, [id]: value }));
   return (
     <FormFrame title={section.title} eyebrow={section.meta}>
@@ -362,7 +382,7 @@ function ApplicationSection({ section, answers, setAnswers, onBack, onNext, isLa
         </ul>
       )}
       {(section.questions || []).map((question) => (
-        <Question key={question.id} question={question} value={answers[question.id]} onChange={(value) => setAnswer(question.id, value)} />
+        <Question key={question.id} question={question} value={answers[question.id]} onHelp={onHelp} onChange={(value) => setAnswer(question.id, value)} />
       ))}
       {section.kind === "review" && <ReviewAnswers answers={answers} />}
       {section.kind === "stop" && <div className="stop-box">This prototype intentionally does not finalise or submit an application.</div>}
@@ -381,32 +401,35 @@ function FormFrame({ eyebrow, title, children }) {
   );
 }
 
-function Question({ question, value, onChange }) {
-  if (question.type === "radio") return <RadioGroup label={question.label} options={question.options} value={value} onChange={onChange} />;
-  if (question.type === "select") return <SelectField label={question.label} options={question.options} value={value} onChange={onChange} />;
+function Question({ question, value, onHelp, onChange }) {
+  if (question.type === "radio") return <RadioGroup label={question.label} options={question.options} value={value} onHelp={onHelp} onChange={onChange} />;
+  if (question.type === "select") return <SelectField label={question.label} options={question.options} value={value} onHelp={onHelp} onChange={onChange} />;
   if (question.type === "checkbox") {
     return (
-      <label className="check-row">
-        <input type="checkbox" checked={Boolean(value)} onChange={(event) => onChange(event.target.checked)} />
-        <span>{question.label}</span>
-      </label>
+      <div className="check-question">
+        <label className="check-row">
+          <input type="checkbox" checked={Boolean(value)} onChange={(event) => onChange(event.target.checked)} />
+          <span>{question.label}</span>
+        </label>
+        <HelpButton question={{ label: question.label }} onHelp={onHelp} />
+      </div>
     );
   }
   if (question.type === "locked" || question.type === "calculated") {
     return (
       <div className="field">
-        <label>{question.label}</label>
+        <QuestionLabel label={question.label} onHelp={onHelp} />
         <div className="locked-value">{question.value}</div>
       </div>
     );
   }
-  return <Field label={question.label} value={value} onChange={onChange} prefix={question.type === "money" ? "$" : undefined} suffix={question.suffix} type={question.type === "number" ? "number" : "text"} />;
+  return <Field label={question.label} value={value} onHelp={onHelp} onChange={onChange} prefix={question.type === "money" ? "$" : undefined} suffix={question.suffix} type={question.type === "number" ? "number" : "text"} />;
 }
 
-function Field({ label, value, onChange, prefix, suffix, hint, type = "text" }) {
+function Field({ label, value, onHelp, onChange, prefix, suffix, hint, type = "text" }) {
   return (
     <div className="field">
-      <label>{label}</label>
+      <QuestionLabel label={label} onHelp={onHelp} />
       <div className="input-wrap">
         {prefix && <span>{prefix}</span>}
         <input type={type} value={value} onChange={(event) => onChange(event.target.value)} />
@@ -417,10 +440,10 @@ function Field({ label, value, onChange, prefix, suffix, hint, type = "text" }) 
   );
 }
 
-function SelectField({ label, options, value, onChange }) {
+function SelectField({ label, options, value, onHelp, onChange }) {
   return (
     <div className="field">
-      <label>{label}</label>
+      <QuestionLabel label={label} onHelp={onHelp} />
       <select value={value} onChange={(event) => onChange(event.target.value)}>
         {options.map((option) => <option key={option}>{option}</option>)}
       </select>
@@ -428,10 +451,15 @@ function SelectField({ label, options, value, onChange }) {
   );
 }
 
-function RadioGroup({ label, options, value, onChange }) {
+function RadioGroup({ label, options, value, onHelp, onChange }) {
   return (
     <fieldset className="radio-group">
-      <legend>{label}</legend>
+      <legend>
+        <span className="question-label-inline">
+          <span>{label}</span>
+          <HelpButton question={{ label }} onHelp={onHelp} />
+        </span>
+      </legend>
       <div className="radio-options">
         {options.map((option) => (
           <label className={value === option ? "radio selected" : "radio"} key={option}>
@@ -442,6 +470,147 @@ function RadioGroup({ label, options, value, onChange }) {
       </div>
     </fieldset>
   );
+}
+
+function QuestionLabel({ label, onHelp }) {
+  return (
+    <label className="question-label-inline">
+      <span>{label}</span>
+      <HelpButton question={{ label }} onHelp={onHelp} />
+    </label>
+  );
+}
+
+function HelpButton({ question, onHelp }) {
+  if (!onHelp) return null;
+
+  return (
+    <button className="help-button" type="button" aria-label={`Ask AI about ${question.label}`} title="Ask AI" onClick={() => onHelp(question)}>
+      ?
+    </button>
+  );
+}
+
+function AssistantDrawer({ question, selectedPrompt, onAsk, onClose }) {
+  const [customQuestion, setCustomQuestion] = useState("");
+  const [messages, setMessages] = useState([]);
+  const latestExchangeRef = useRef(null);
+
+  useEffect(() => {
+    latestExchangeRef.current?.scrollIntoView({ block: "start" });
+  }, [messages]);
+
+  if (!question) return null;
+
+  const askPreset = (prompt) => {
+    onAsk(prompt);
+    setMessages((current) => [
+      ...current,
+      { role: "customer", text: prompt },
+      { role: "assistant", text: getAssistantAnswer(question.label, prompt) }
+    ]);
+  };
+
+  const askCustomQuestion = (event) => {
+    event.preventDefault();
+    const trimmedQuestion = customQuestion.trim();
+    if (!trimmedQuestion) return;
+    onAsk(null);
+    setMessages((current) => [
+      ...current,
+      { role: "customer", text: trimmedQuestion },
+      { role: "assistant", text: getCustomAssistantAnswer(question.label, trimmedQuestion) }
+    ]);
+    setCustomQuestion("");
+  };
+
+  return (
+    <aside className="assistant-drawer" aria-label="AI assistant help panel">
+      <div className="assistant-header">
+        <div>
+          <span>AI ASSISTANT</span>
+          <h2>Need help with this question?</h2>
+        </div>
+        <button className="assistant-close" type="button" aria-label="Close AI assistant" onClick={onClose}>
+          ×
+        </button>
+      </div>
+      <div className="assistant-question">{question.label}</div>
+      <div className="assistant-chat" aria-live="polite">
+        {messages.length === 0 && (
+          <div className="chat-message assistant-message">
+            <span>AI assistant</span>
+            <p>I can help explain this question in plain language. Choose a quick question or type your own below.</p>
+          </div>
+        )}
+        {messages.map((message, index) => (
+          <div
+            className={`chat-message ${message.role === "customer" ? "customer-message" : "assistant-message"}`}
+            key={`${message.role}-${index}`}
+            ref={message.role === "customer" && index === messages.length - 2 ? latestExchangeRef : undefined}
+          >
+            <span>{message.role === "customer" ? "You" : "AI assistant"}</span>
+            <p>{message.text}</p>
+          </div>
+        ))}
+      </div>
+      <div className="assistant-quick-actions" aria-label="Suggested questions">
+        <span>Suggested questions</span>
+        <div className="assistant-prompts">
+          {assistantPrompts.map((prompt) => (
+            <button className={selectedPrompt === prompt ? "prompt-chip selected" : "prompt-chip"} type="button" key={prompt} onClick={() => askPreset(prompt)}>
+              {prompt}
+            </button>
+          ))}
+        </div>
+      </div>
+      <form className="assistant-custom" onSubmit={askCustomQuestion}>
+        <label htmlFor="assistant-free-question">Ask your own question</label>
+        <textarea
+          id="assistant-free-question"
+          value={customQuestion}
+          onChange={(event) => setCustomQuestion(event.target.value)}
+          placeholder="For example, what if I am not sure about the exact date?"
+          rows={2}
+        />
+        <button className="assistant-ask-button" type="submit" disabled={!customQuestion.trim()}>
+          ASK AI
+        </button>
+      </form>
+    </aside>
+  );
+}
+
+function getQuestionTopic(label) {
+  const lowerLabel = label.toLowerCase();
+  return lowerLabel.includes("income")
+    ? "income"
+    : lowerLabel.includes("occupation") || lowerLabel.includes("work")
+      ? "occupation"
+      : lowerLabel.includes("smoked") || lowerLabel.includes("health") || lowerLabel.includes("medical")
+        ? "health"
+        : lowerLabel.includes("insurance") || lowerLabel.includes("policy")
+          ? "insurance history"
+          : "application";
+}
+
+function getAssistantAnswer(label, prompt) {
+  const topic = getQuestionTopic(label);
+
+  if (prompt === "why is this information important?") {
+    return `TAL asks this because your ${topic} information can affect eligibility, pricing, underwriting, or whether extra details are needed before cover can be offered.`;
+  }
+
+  if (prompt === "how should I answer?") {
+    return `Answer based on your situation today. If unclear, add detail instead of guessing, or contact TAL.`;
+  }
+
+  return `After you answer, the application saves your response and moves to the next question or section. If your answer needs more detail, the real application may ask follow-up questions before final review.`;
+}
+
+function getCustomAssistantAnswer(label, customerQuestion) {
+  const topic = getQuestionTopic(label);
+  return `For this prototype, the assistant would explain how this ${topic} question is used, then point you to your records or best current knowledge before you answer.`;
 }
 
 function Actions({ onBack, onNext, nextLabel }) {

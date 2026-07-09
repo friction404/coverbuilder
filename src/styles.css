@@ -28,7 +28,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -207,6 +208,40 @@ h1 {
   margin: 0 0 8px;
 }
 
+.question-label-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.help-button {
+  min-width: 22px;
+  width: 22px;
+  min-height: 22px;
+  height: 22px;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 1px solid var(--tal-green);
+  border-radius: 50%;
+  color: var(--text);
+  background: #fff;
+  font-size: 13px;
+  font-weight: 800;
+  line-height: 1;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.help-button:hover,
+.help-button:focus-visible {
+  background: var(--soft-green);
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(128, 195, 66, 0.24);
+}
+
 .input-wrap {
   display: flex;
   align-items: center;
@@ -222,9 +257,9 @@ h1 {
 }
 
 input,
-select {
+select,
+textarea {
   width: 100%;
-  min-height: 48px;
   border: 1px solid #9fb0b5;
   border-radius: 0;
   padding: 0 14px;
@@ -233,12 +268,25 @@ select {
   outline: none;
 }
 
+input,
+select {
+  min-height: 48px;
+}
+
+textarea {
+  min-height: 92px;
+  padding: 12px 14px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
 .input-wrap input {
   border: 0;
 }
 
 input:focus,
 select:focus,
+textarea:focus,
 .input-wrap:focus-within {
   border-color: var(--tal-green);
   box-shadow: 0 0 0 2px rgba(128, 195, 66, 0.22);
@@ -296,6 +344,22 @@ select:focus,
 .check-row {
   margin-bottom: 20px;
   line-height: 1.45;
+}
+
+.check-question {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+  align-items: start;
+  margin-bottom: 20px;
+}
+
+.check-question .check-row {
+  margin-bottom: 0;
+}
+
+.check-question .help-button {
+  margin-top: 14px;
 }
 
 .locked-value {
@@ -423,6 +487,188 @@ button {
   background: #fff;
 }
 
+.assistant-drawer {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  z-index: 20;
+  width: min(390px, calc(100vw - 32px));
+  max-height: min(86vh, 820px);
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  overflow-y: auto;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 18px 54px rgba(37, 40, 42, 0.22);
+}
+
+.assistant-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: start;
+  margin-bottom: 18px;
+}
+
+.assistant-header span {
+  display: block;
+  color: var(--tal-green-dark);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 1.4px;
+  margin-bottom: 8px;
+}
+
+.assistant-header h2 {
+  margin: 0;
+  color: var(--text);
+  font-size: 21px;
+  line-height: 1.2;
+}
+
+.assistant-close {
+  min-width: 32px;
+  width: 32px;
+  min-height: 32px;
+  height: 32px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: #fff;
+  color: var(--text);
+  font-size: 22px;
+  line-height: 1;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.assistant-question {
+  border-left: 4px solid var(--tal-green);
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  background: var(--soft-green);
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.assistant-chat {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  flex-shrink: 0;
+  min-height: 140px;
+  max-height: min(32vh, 260px);
+  overflow-y: auto;
+  padding: 4px 2px 12px;
+  margin-bottom: 14px;
+}
+
+.chat-message {
+  max-width: 88%;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  line-height: 1.45;
+}
+
+.chat-message span {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--muted);
+}
+
+.chat-message p {
+  margin: 0;
+}
+
+.assistant-message {
+  align-self: flex-start;
+  background: var(--soft);
+}
+
+.customer-message {
+  align-self: flex-end;
+  border-color: var(--tal-green);
+  background: var(--soft-green);
+}
+
+.assistant-quick-actions {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+  margin-bottom: 14px;
+}
+
+.assistant-quick-actions > span {
+  display: block;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.assistant-prompts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.prompt-chip {
+  min-width: auto;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  color: var(--text);
+  background: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.prompt-chip:hover,
+.prompt-chip.selected {
+  border-color: var(--tal-green);
+  background: var(--soft-green);
+}
+
+.assistant-custom {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.assistant-custom label {
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.assistant-custom textarea {
+  min-height: 72px;
+}
+
+.assistant-ask-button {
+  justify-self: end;
+  min-width: 108px;
+  min-height: 40px;
+  color: var(--text);
+  background: var(--tal-green);
+  letter-spacing: 1.4px;
+}
+
+.assistant-ask-button:hover:not(:disabled) {
+  background: var(--tal-green-dark);
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
 .summary-title {
   color: var(--text);
   font-size: 12px;
@@ -524,5 +770,54 @@ footer nav {
 
   .benefit strong {
     grid-column: 2;
+  }
+
+  .assistant-drawer {
+    right: 14px;
+    bottom: 14px;
+    width: calc(100vw - 28px);
+    max-height: min(78vh, 720px);
+    padding: 20px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    box-shadow: 0 16px 44px rgba(37, 40, 42, 0.2);
+  }
+
+  .assistant-header h2 {
+    font-size: 21px;
+  }
+
+  .assistant-chat {
+    min-height: 0;
+    max-height: 180px;
+    gap: 10px;
+  }
+
+  .chat-message {
+    padding: 10px 12px;
+    line-height: 1.35;
+  }
+
+  .assistant-quick-actions {
+    padding-top: 12px;
+    margin-bottom: 12px;
+  }
+
+  .assistant-prompts {
+    gap: 8px;
+  }
+
+  .prompt-chip {
+    min-height: 32px;
+    padding: 0 10px;
+    font-size: 12px;
+  }
+
+  .assistant-custom {
+    padding-top: 12px;
+  }
+
+  .assistant-custom textarea {
+    min-height: 60px;
   }
 }
