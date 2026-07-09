@@ -1,0 +1,16 @@
+[
+  {
+    "cloudName": "AzureCloud",
+    "homeTenantId": "530211ad-1dcf-42db-b0cc-f0ae94dbf11a",
+    "id": "78ab88aa-5ff9-4399-8111-13823139e985",
+    "isDefault": true,
+    "managedByTenants": [],
+    "name": "tal-hackiverse",
+    "state": "Enabled",
+    "tenantId": "530211ad-1dcf-42db-b0cc-f0ae94dbf11a",
+    "user": {
+      "name": "derar.alkhateeb@talhackiverse.onmicrosoft.com",
+      "type": "user"
+    }
+  }
+]

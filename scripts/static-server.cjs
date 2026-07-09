@@ -18,6 +18,22 @@ http
 
     fs.readFile(file, (error, bytes) => {
       if (error) {
+        if (!path.extname(pathname)) {
+          fs.readFile(path.join(root, "index.html"), (fallbackError, fallbackBytes) => {
+            if (fallbackError) {
+              response.writeHead(404);
+              response.end("not found");
+              return;
+            }
+
+            response.writeHead(200, {
+              "Content-Type": "text/html"
+            });
+            response.end(fallbackBytes);
+          });
+          return;
+        }
+
         response.writeHead(404);
         response.end("not found");
         return;

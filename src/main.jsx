@@ -187,6 +187,47 @@ const appSections = [
   }
 ];
 
+const repCases = [
+  {
+    id: "alex-taylor",
+    customer: "Alex Taylor",
+    stage: "Your Health and Lifestyle",
+    stageDetail: "Medical history question",
+    frictionScore: 95,
+    recommendedAction: "Offer callback and take over",
+    stoppedSectionId: "health",
+    stoppedQuestion:
+      "Have you ever had, or been told you had, any heart, stroke, cancer, diabetes, mental health, neurological, respiratory, digestive, back, joint or chronic pain condition?",
+    coverSnapshot: "Life Insurance, $500,000, $29.75/month",
+    supportNeed: "Customer may be unsure whether an old diagnosis or investigation needs to be disclosed."
+  },
+  {
+    id: "priya-shah",
+    customer: "Priya Shah",
+    stage: "Your Employment & Income",
+    stageDetail: "Annual income question",
+    frictionScore: 68,
+    recommendedAction: "Send continuation link with income guidance",
+    stoppedSectionId: "income",
+    stoppedQuestion: "Annual earned income (excluding employer superannuation contribution amount)",
+    coverSnapshot: "Life Insurance and Income Protection, quote calculated",
+    supportNeed: "Customer appears unsure whether to include superannuation and variable income."
+  },
+  {
+    id: "jordan-lee",
+    customer: "Jordan Lee",
+    stage: "Your Insurance History",
+    stageDetail: "Existing cover question",
+    frictionScore: 42,
+    recommendedAction: "Offer CoverBuddy guidance",
+    stoppedSectionId: "history",
+    stoppedQuestion:
+      "Will this policy replace, reduce or change any existing insurance cover, including insurance through superannuation or your employer?",
+    coverSnapshot: "Life Insurance and Critical Illness, benefits reviewed",
+    supportNeed: "Customer may not know how employer or superannuation insurance should be treated."
+  }
+];
+
 const initialAnswers = Object.fromEntries(
   appSections.flatMap((section) =>
     (section.questions || []).map((question) => [
@@ -228,22 +269,64 @@ function applyFrictionSignal(current, { points, cause, flag }) {
   };
 }
 
+function getRepCaseHandoffSummary(repCase) {
+  return `${repCase.customer} is paused at ${repCase.stage} (${repCase.stageDetail}). They stopped on: "${repCase.stoppedQuestion}" Current cover context: ${repCase.coverSnapshot}. Suggested handoff: ${repCase.supportNeed}`;
+}
+
+function getRepCase(caseId) {
+  return repCases.find((repCase) => repCase.id === caseId) || repCases[0];
+}
+
+function getAppSectionIndex(sectionId) {
+  const index = appSections.findIndex((section) => section.id === sectionId);
+  return index > -1 ? index : 0;
+}
+
+function getRouteFromLocation() {
+  if (typeof window === "undefined") return { name: "customer", screen: "quote1" };
+
+  const pathname = window.location.pathname.replace(/\/+$/, "") || "/";
+  const takeoverMatch = pathname.match(/^\/rep\/takeover\/([^/]+)$/);
+
+  if (takeoverMatch) {
+    return {
+      name: "repTakeover",
+      screen: "application",
+      repCaseId: decodeURIComponent(takeoverMatch[1])
+    };
+  }
+
+  if (pathname === "/rep") return { name: "rep", screen: "rep" };
+
+  return { name: "customer", screen: "quote1" };
+}
+
 function App() {
-  const [screen, setScreen] = useState("quote1");
+  const [initialRoute] = useState(getRouteFromLocation);
+  const initialRepCase = initialRoute.repCaseId ? getRepCase(initialRoute.repCaseId) : repCases[0];
+  const [screen, setScreen] = useState(initialRoute.screen);
   const [quote, setQuote] = useState(quoteDefaults);
   const [cover, setCover] = useState({ life: true, tpd: false, trauma: false, income: false, amount: "500000" });
-  const [appIndex, setAppIndex] = useState(0);
+  const [appIndex, setAppIndex] = useState(
+    initialRoute.name === "repTakeover" ? getAppSectionIndex(initialRepCase.stoppedSectionId) : 0
+  );
   const [answers, setAnswers] = useState(initialAnswers);
   const [assistantQuestion, setAssistantQuestion] = useState(null);
   const [assistantPrompt, setAssistantPrompt] = useState(null);
   const [assistantSessionId, setAssistantSessionId] = useState(0);
   const [frictionAlert, setFrictionAlert] = useState(null);
   const [lastActivityAt, setLastActivityAt] = useState(Date.now());
+  const [selectedRepCaseId, setSelectedRepCaseId] = useState(initialRepCase.id);
+  const [repNotice, setRepNotice] = useState("");
+  const [repTakeoverCase, setRepTakeoverCase] = useState(initialRoute.name === "repTakeover" ? initialRepCase : null);
+  const isRepScreen = screen === "rep";
   const isPremiumCalculated = screen !== "quote1" && screen !== "quote2";
+  const selectedRepCase = repCases.find((repCase) => repCase.id === selectedRepCaseId) || repCases[0];
 
   const activeStep = useMemo(() => {
+    if (isRepScreen) return "Rep Dashboard";
     return screen === "application" ? appSections[appIndex].nav : quoteStepTitles[screen];
-  }, [screen, appIndex]);
+  }, [isRepScreen, screen, appIndex]);
 
   const activeContextKey = screen === "application" ? `application:${appSections[appIndex].id}` : screen;
   const activeContextLabel = screen === "application" ? appSections[appIndex].title : activeStep;
@@ -300,6 +383,70 @@ function App() {
     setAssistantSessionId((value) => value + 1);
   };
 
+  const applyRoute = (route) => {
+    if (route.name === "rep") {
+      setScreen("rep");
+      setRepTakeoverCase(null);
+      setAssistantQuestion(null);
+      setAssistantPrompt(null);
+      setFrictionAlert(null);
+      setRepNotice("");
+      return;
+    }
+
+    if (route.name === "repTakeover") {
+      const nextRepCase = getRepCase(route.repCaseId);
+      setSelectedRepCaseId(nextRepCase.id);
+      setRepTakeoverCase(nextRepCase);
+      setAppIndex(getAppSectionIndex(nextRepCase.stoppedSectionId));
+      setScreen("application");
+      setAssistantQuestion(null);
+      setAssistantPrompt(null);
+      setFrictionAlert(null);
+      setRepNotice("");
+      return;
+    }
+
+    setScreen("quote1");
+    setAppIndex(0);
+    setRepTakeoverCase(null);
+    setAssistantQuestion(null);
+    setAssistantPrompt(null);
+    setFrictionAlert(null);
+    setRepNotice("");
+  };
+
+  const navigateTo = (path) => {
+    if (typeof window === "undefined") return;
+    window.history.pushState({}, "", path);
+    applyRoute(getRouteFromLocation());
+  };
+
+  const openRepDashboard = () => {
+    navigateTo("/rep");
+  };
+
+  const takeOverApplication = () => {
+    navigateTo(`/rep/takeover/${encodeURIComponent(selectedRepCase.id)}`);
+  };
+
+  const sendContinuationLink = () => {
+    setRepNotice(`Continuation link sent to ${selectedRepCase.customer}.`);
+  };
+
+  const offerCallback = () => {
+    setRepNotice(`Callback offer queued for ${selectedRepCase.customer}.`);
+  };
+
+  useEffect(() => {
+    const handlePopState = () => {
+      applyRoute(getRouteFromLocation());
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
   useEffect(() => {
     setFriction(createFrictionState(activeContextKey));
     setFrictionAlert(null);
@@ -310,6 +457,8 @@ function App() {
   }, [activeContextKey]);
 
   useEffect(() => {
+    if (isRepScreen) return undefined;
+
     const timeout = window.setTimeout(() => {
       recordFrictionSignal({
         points: 35,
@@ -319,9 +468,11 @@ function App() {
     }, 10000);
 
     return () => window.clearTimeout(timeout);
-  }, [lastActivityAt, activeContextKey]);
+  }, [isRepScreen, lastActivityAt, activeContextKey]);
 
   useEffect(() => {
+    if (isRepScreen) return undefined;
+
     const longDwellTimer = window.setTimeout(() => {
       recordFrictionSignal({
         points: 20,
@@ -342,9 +493,11 @@ function App() {
       window.clearTimeout(longDwellTimer);
       window.clearTimeout(extendedDwellTimer);
     };
-  }, [activeContextKey, activeContextLabel]);
+  }, [isRepScreen, activeContextKey, activeContextLabel]);
 
   useEffect(() => {
+    if (isRepScreen) return;
+
     const level = getFrictionLevel(friction.score);
     if (level === "low" || level === friction.notifiedLevel) return;
 
@@ -357,7 +510,7 @@ function App() {
     setAssistantPrompt(null);
     setAssistantSessionId((value) => value + 1);
     setFriction((current) => ({ ...current, notifiedLevel: level }));
-  }, [activeContextLabel, friction.causes, friction.notifiedLevel, friction.score]);
+  }, [isRepScreen, activeContextLabel, friction.causes, friction.notifiedLevel, friction.score]);
 
   const goAppNext = () => {
     recordActivity();
@@ -366,29 +519,49 @@ function App() {
 
   return (
     <div className="app" onPointerDown={recordActivity} onKeyDown={recordActivity}>
-      <Header mode={screen === "application" ? "YOUR APPLICATION" : "TAL COVERBUILDER"} />
-      <main className={`shell ${screen === "application" ? "application-shell" : ""} ${isPremiumCalculated ? "" : "no-summary"}`}>
-        <ProgressRail activeStep={activeStep} appIndex={appIndex} screen={screen} />
-        <section className="content-panel">
-          {screen === "quote1" && <QuoteStepOne quote={quote} setQuote={setQuote} onHelp={openAssistant} onEdit={recordAnswerEdit} onNext={() => setScreen("quote2")} />}
-          {screen === "quote2" && <QuoteStepTwo quote={quote} setQuote={setQuote} onHelp={openAssistant} onEdit={recordAnswerEdit} onBack={() => setScreen("quote1")} onNext={() => setScreen("select")} />}
-          {screen === "select" && <SelectCover cover={cover} setCover={setCover} onHelp={openAssistant} onEdit={recordAnswerEdit} onBack={() => setScreen("quote2")} onNext={() => setScreen("benefits")} />}
-          {screen === "benefits" && <Benefits cover={cover} onBack={() => setScreen("select")} onNext={() => setScreen("application")} />}
-          {screen === "application" && (
-            <ApplicationSection
-              section={appSections[appIndex]}
-              answers={answers}
-              setAnswers={setAnswers}
-              onHelp={openAssistant}
-              onEdit={recordAnswerEdit}
-              onBack={() => (appIndex === 0 ? setScreen("benefits") : setAppIndex((value) => value - 1))}
-              onNext={goAppNext}
-              isLast={appIndex === appSections.length - 1}
-            />
-          )}
-        </section>
-        {isPremiumCalculated && <QuoteSummary cover={cover} screen={screen} />}
-      </main>
+      <Header mode={isRepScreen ? "REP DASHBOARD" : screen === "application" ? "YOUR APPLICATION" : "TAL COVERBUILDER"} onRepDashboard={openRepDashboard} />
+      {isRepScreen ? (
+        <main className="rep-shell">
+          <RepDashboard
+            cases={repCases}
+            selectedCase={selectedRepCase}
+            notice={repNotice}
+            onSelectCase={(id) => {
+              setSelectedRepCaseId(id);
+              setRepNotice("");
+            }}
+            onTakeOver={takeOverApplication}
+            onSendLink={sendContinuationLink}
+            onOfferCallback={offerCallback}
+          />
+        </main>
+      ) : (
+        <main className={`shell ${screen === "application" ? "application-shell" : ""} ${isPremiumCalculated ? "" : "no-summary"}`}>
+          <ProgressRail activeStep={activeStep} appIndex={appIndex} screen={screen} />
+          <section className="content-panel">
+            {screen === "quote1" && <QuoteStepOne quote={quote} setQuote={setQuote} onHelp={openAssistant} onEdit={recordAnswerEdit} onNext={() => setScreen("quote2")} />}
+            {screen === "quote2" && <QuoteStepTwo quote={quote} setQuote={setQuote} onHelp={openAssistant} onEdit={recordAnswerEdit} onBack={() => setScreen("quote1")} onNext={() => setScreen("select")} />}
+            {screen === "select" && <SelectCover cover={cover} setCover={setCover} onHelp={openAssistant} onEdit={recordAnswerEdit} onBack={() => setScreen("quote2")} onNext={() => setScreen("benefits")} />}
+            {screen === "benefits" && <Benefits cover={cover} onBack={() => setScreen("select")} onNext={() => setScreen("application")} />}
+            {screen === "application" && (
+              <>
+                {repTakeoverCase && <RepTakeoverBanner repCase={repTakeoverCase} onBackToDashboard={openRepDashboard} />}
+                <ApplicationSection
+                  section={appSections[appIndex]}
+                  answers={answers}
+                  setAnswers={setAnswers}
+                  onHelp={openAssistant}
+                  onEdit={recordAnswerEdit}
+                  onBack={() => (appIndex === 0 ? setScreen("benefits") : setAppIndex((value) => value - 1))}
+                  onNext={goAppNext}
+                  isLast={appIndex === appSections.length - 1}
+                />
+              </>
+            )}
+          </section>
+          {isPremiumCalculated && <QuoteSummary cover={cover} screen={screen} />}
+        </main>
+      )}
       <AssistantDrawer
         key={`${assistantQuestion?.label || "assistant-closed"}-${assistantSessionId}`}
         question={assistantQuestion}
@@ -406,7 +579,7 @@ function App() {
   );
 }
 
-function Header({ mode }) {
+function Header({ mode, onRepDashboard }) {
   return (
     <header className="topbar">
       <div className="brand">
@@ -414,6 +587,9 @@ function Header({ mode }) {
         <span className="mode">{mode}</span>
       </div>
       <div className="support">
+        <button className="rep-nav-button" type="button" onClick={onRepDashboard}>
+          REP DASHBOARD
+        </button>
         <span>Secure</span>
         <a href="tel:131825">Need Help?</a>
         <strong>131 825</strong>
@@ -525,6 +701,107 @@ function Benefits({ cover, onBack, onNext }) {
       </div>
       <Actions onBack={onBack} onNext={onNext} nextLabel="START APPLICATION" />
     </FormFrame>
+  );
+}
+
+function RepDashboard({ cases, selectedCase, notice, onSelectCase, onTakeOver, onSendLink, onOfferCallback }) {
+  return (
+    <section className="rep-dashboard" aria-label="Representative friction dashboard">
+      <div className="rep-heading">
+        <div>
+          <div className="eyebrow">CUSTOMER SUPPORT</div>
+          <h1>Rep dashboard</h1>
+        </div>
+        <div className="rep-kpis" aria-label="Case totals">
+          <div>
+            <span>Open cases</span>
+            <strong>{cases.length}</strong>
+          </div>
+          <div>
+            <span>High friction</span>
+            <strong>{cases.filter((repCase) => repCase.frictionScore > frictionThresholds.mediumMax).length}</strong>
+          </div>
+        </div>
+      </div>
+
+      <div className="rep-layout">
+        <div className="rep-table-wrap">
+          <table className="rep-table">
+            <thead>
+              <tr>
+                <th scope="col">Customer</th>
+                <th scope="col">Stage</th>
+                <th scope="col">Friction score</th>
+                <th scope="col">Recommended action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {cases.map((repCase) => (
+                <tr className={repCase.id === selectedCase.id ? "selected" : ""} key={repCase.id}>
+                  <td>
+                    <button className="rep-row-button" type="button" onClick={() => onSelectCase(repCase.id)}>
+                      {repCase.customer}
+                    </button>
+                  </td>
+                  <td>
+                    <strong>{repCase.stage}</strong>
+                    <span>{repCase.stageDetail}</span>
+                  </td>
+                  <td>
+                    <span className={repCase.frictionScore > frictionThresholds.mediumMax ? "score-pill high" : "score-pill"}>
+                      {repCase.frictionScore}
+                    </span>
+                  </td>
+                  <td>{repCase.recommendedAction}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <aside className="handoff-panel" aria-label="Generated handoff summary">
+          <div className="handoff-title">Handoff summary</div>
+          <p>{getRepCaseHandoffSummary(selectedCase)}</p>
+          <dl className="handoff-details">
+            <div>
+              <dt>Stopped question</dt>
+              <dd>{selectedCase.stoppedQuestion}</dd>
+            </div>
+            <div>
+              <dt>Support focus</dt>
+              <dd>{selectedCase.supportNeed}</dd>
+            </div>
+          </dl>
+          {notice && <div className="rep-notice" role="status">{notice}</div>}
+          <div className="rep-actions">
+            <button className="primary" type="button" onClick={onTakeOver}>
+              TAKE OVER APPLICATION
+            </button>
+            <button className="secondary" type="button" onClick={onSendLink}>
+              SEND CONTINUATION LINK
+            </button>
+            <button className="secondary" type="button" onClick={onOfferCallback}>
+              OFFER CALLBACK
+            </button>
+          </div>
+        </aside>
+      </div>
+    </section>
+  );
+}
+
+function RepTakeoverBanner({ repCase, onBackToDashboard }) {
+  return (
+    <div className="rep-takeover-banner" role="status">
+      <div>
+        <span>Rep takeover active</span>
+        <strong>{repCase.customer} stopped at {repCase.stage}</strong>
+        <p>{repCase.supportNeed}</p>
+      </div>
+      <button className="secondary" type="button" onClick={onBackToDashboard}>
+        BACK TO REP DASHBOARD
+      </button>
+    </div>
   );
 }
 
@@ -711,13 +988,13 @@ function AssistantDrawer({ question, selectedPrompt, frictionAlert, onAsk, onClo
   };
 
   return (
-    <aside className="assistant-drawer" aria-label="AI assistant help panel">
+    <aside className="assistant-drawer" aria-label="CoverBuddy help panel">
       <div className="assistant-header">
         <div>
-          <span>AI ASSISTANT</span>
+          <span>COVERBUDDY</span>
           <h2>Need help with this question?</h2>
         </div>
-        <button className="assistant-close" type="button" aria-label="Close AI assistant" onClick={onClose}>
+        <button className="assistant-close" type="button" aria-label="Close CoverBuddy" onClick={onClose}>
           ×
         </button>
       </div>
@@ -725,7 +1002,7 @@ function AssistantDrawer({ question, selectedPrompt, frictionAlert, onAsk, onClo
       <div className="assistant-chat" aria-live="polite">
         {frictionAlert && messages.length === 0 && (
           <div className={`chat-message assistant-message friction-message ${frictionAlert.level === "high" ? "high-friction" : ""}`}>
-            <span>AI assistant</span>
+            <span>CoverBuddy</span>
             <p>{getFrictionMessage(frictionAlert)}</p>
             {frictionAlert.level === "high" && (
               <button className="rep-call-button" type="button">
@@ -736,7 +1013,7 @@ function AssistantDrawer({ question, selectedPrompt, frictionAlert, onAsk, onClo
         )}
         {!frictionAlert && messages.length === 0 && (
           <div className="chat-message assistant-message">
-            <span>AI assistant</span>
+            <span>CoverBuddy</span>
             <p>I can help explain this question in plain language. Choose a quick question or type your own below.</p>
           </div>
         )}
@@ -746,7 +1023,7 @@ function AssistantDrawer({ question, selectedPrompt, frictionAlert, onAsk, onClo
             key={`${message.role}-${index}`}
             ref={message.role === "customer" && index === messages.length - 2 ? latestExchangeRef : undefined}
           >
-            <span>{message.role === "customer" ? "You" : "AI assistant"}</span>
+            <span>{message.role === "customer" ? "You" : "CoverBuddy"}</span>
             <p>{message.text}</p>
           </div>
         ))}
