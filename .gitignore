@@ -1,0 +1,5 @@
+node_modules/
+dist/
+*.log
+coverbuilder-*.png
+.chrome-profile*/
